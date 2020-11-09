@@ -1,0 +1,183 @@
+---
+title: "CP002 NBA"
+author: "FRANCISCO DEL VAL"
+date: "10/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Librerias
+```{r}
+library(rsample) # splitting
+library(dplyr)
+library(glmnet) # regresion regularizada
+library(tidyverse)
+library(magrittr) # Pipe operators %<>%
+library(janitor) # Limpieza de nombres
+library(skimr) # Summarize bonito 
+```
+
+
+#### Carga de la base de datos 
+```{r}
+nba = read.csv("../data/nba.csv")
+```
+
+```{r}
+# Vemos la primera parte del dataset
+head(nba)
+```
+
+#### Summarize 
+```{r}
+skim(nba) # hay dos datos repetidos y varios NA
+```
+
+#### Limpieza de nombres 
+```{r}
+nba %<>% clean_names()   
+colnames(nba)
+```
+#### Eliminacion de duplicados 
+```{r}
+nba %<>% distinct(player, .keep_all = T)
+```
+#### Eliminacion de valores nulos 
+```{r}
+# vemos cuantos valores nulos hay 
+summarise_all(nba, funs(sum(is.na(.))))
+
+# como hay pocos los eliminarlos
+nba %<>% drop_na()
+```
+
+### METODOS DE CONCENTRACIÓN 
+
+#### Elastic net 
+La red elástica es otra penalización que incorpora la selección variable del lasso y la contracción de predictores correlacionados como la regresión de ridge.
+
+```{r}
+log_nba <- nba %>% mutate(salary = log(salary)) # Cogemos la variable salary con logaritmos
+
+vars_cats <- c('player', 'nba_country', 'tm') # creamos un vector con las varaibles categoricas
+
+log_nba <- log_nba %>% select_at(vars(-vars_cats)) # selecciono todas las varibles menos las categoricas
+```
+
+
+
+```{r}
+
+# Generamos una semilla aleatoria
+set.seed(1234)
+
+# Empleamos la proporcion de 70% para el trining y 30% para el test 
+nba_split <- initial_split(log_nba, prop = 0.70, strata ="salary")
+
+nba_train <- training(nba_split)
+nba_test  <- testing(nba_split)
+```
+```{r}
+nba_train_x <- model.matrix(salary ~ ., nba_train)[, -1]
+nba_train_y <- log(nba_train$salary)
+
+nba_test_x <- model.matrix(salary~ ., nba_test)[, -1]
+nba_test_y <- log(nba_test$salary)
+
+# comprobacion de que el training esta bien ( siempre mayor que el test)
+dim(nba_train_x)
+```
+
+```{r}
+# definicion de 4 modelos 
+lasso    <- glmnet(nba_train_x, nba_train_y, alpha = 1.0) 
+elastic1 <- glmnet(nba_train_x, nba_train_y, alpha = 0.25) 
+elastic2 <- glmnet(nba_train_x, nba_train_y, alpha = 0.75) 
+ridge    <- glmnet(nba_train_x, nba_train_y, alpha = 0.0)
+```
+
+```{r elastic net regression, fig.height = 10, fig.width = 8, fig.align = "center"}
+# visualizo  los modelos 
+par(mfrow = c(2, 2), mar = c(6, 4, 6, 2) + 0.1)
+plot(lasso, xvar = "lambda", main = "Lasso (Alpha = 1)\n\n\n")
+plot(elastic1, xvar = "lambda", main = "Elastic Net (Alpha = .25)\n\n\n")
+plot(elastic2, xvar = "lambda", main = "Elastic Net (Alpha = .75)\n\n\n")
+plot(ridge, xvar = "lambda", main = "Ridge (Alpha = 0)\n\n\n")
+
+```
+
+Elejimos el mejor modelo de los 4 modificando los parametros λ  y α.
+
+## Ajuste de λ  y α
+```{r}
+# se mantienen los mismos folds
+fold_id <- sample(1:10, size = length(nba_train_y), replace=TRUE)
+
+# buscamos entre los alfas
+tuning_grid <- tibble::tibble(
+alpha = seq(0, 1, by = .1),
+mse_min = NA,
+mse_1se = NA,
+lambda_min = NA,
+lambda_1se = NA
+)
+tuning_grid
+
+
+# completamos la tabla:
+
+for(i in seq_along(tuning_grid$alpha)) {
+  
+# ajustar el modelo de CV para cada valor alfa
+fit <- cv.glmnet(nba_train_x, nba_train_y, alpha = tuning_grid$alpha[i], foldid = fold_id)
+
+# extraer los valores de alpha y lambda
+tuning_grid$mse_min[i] <- fit$cvm[fit$lambda == fit$lambda.min]
+tuning_grid$mse_1se[i] <- fit$cvm[fit$lambda == fit$lambda.1se]
+tuning_grid$lambda_min[i] <- fit$lambda.min
+tuning_grid$lambda_1se[i] <- fit$lambda.1se
+}
+# cargamos la informacion en la tabla 
+tuning_grid
+```
+El modelo es Lasso con alpha = 1.0 presenta los coeficientes mas bajos
+Lo dibujamos para verlo mejor 
+
+```{r}
+# utilizamos +- 1 desviacion para comprobar que Lasso es el mejor
+
+tuning_grid %>%
+  mutate(se = mse_1se - mse_min) %>%
+    ggplot(aes(alpha, mse_min)) +
+      geom_line(size = 2) +
+      geom_ribbon(aes(ymax = mse_min + se, ymin = mse_min - se), alpha = .25) +
+      ggtitle("MSE ± one standard error")
+```
+
+### Predicción 
+Predecimos el modelo Lasso con alpha=1
+```{r}
+cv_lasso <- cv.glmnet(nba_train_x, nba_train_y, alpha = 1.0)
+min(cv_lasso$cvm)
+```
+
+
+```{r}
+pred <- predict(cv_lasso, s = cv_lasso$lambda.min, nba_test_x)
+mean((nba_test_y - pred)^2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
