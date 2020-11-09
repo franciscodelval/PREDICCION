@@ -1,0 +1,241 @@
+---
+title: "PISA"
+author: "FRANCISCO DEL VAL"
+date: "10/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### CARGA LIBRERIASA  
+```{r warning=FALSE}
+library(tidyverse)
+library(knitr)
+library(gam) #GAM
+library(rsample) #Para el train/test
+library(bestglm) # Cross Validation
+library(glmnet) # Regularization
+library(leaps) # Model selection
+library(caret) # Cross Validation
+library(broom) # modelos en df
+library(flextable) # Tablas formateadas
+library(reshape2) 
+library(janitor) # Limpieza de nombres
+library(dplyr)
+library(magrittr) # Pipe operators %<>%
+library(imputeTS) # na_mean() 
+library(skimr) # Summary bonito 
+library(PerformanceAnalytics) #  chart.correlation
+```
+
+
+```{r}
+# CARGa Y VISUALIZACION DE LA BASE DE DATOS
+pisa = read.csv("../data/pisasci2006.csv")
+head(pisa)
+```
+# SUMMARIZE
+```{r}
+skim(pisa)
+```
+
+
+
+#### LIMPIEZA DE DATOS
+
+Las variables clave son las siguientes:
+
+  - Overall Science Score (average score for 15 year olds)
+  - Interest in science
+  - Support for scientific inquiry
+  - Income Index
+  - Health Index
+  - Education Index
+  - Human Development Index (composed of the Income index, Health Index, and Education Index
+  
+```{r}
+# limpieza de los nombres con la funcion clean_names(). por defecto es en minuscula y lo compuestos separados con _
+pisa %<>% clean_names()
+```
+```{r}
+# comprobamos que se han cambiado los nombres.
+colnames(pisa)
+```
+
+Dupliados:
+```{r}
+# Eliminamos los duplicados si existen 
+# utilizo una funcion que me guarde todos los paises que sean distintos
+pisa %<>% distinct(country, .keep_all = T)
+```
+
+Nuestro dataset presenta bastantes NaN. Hacemos la media para no perder informacion
+```{r}
+# contamos los nulos
+# ordeno que me diga los nulos que aparecen en cada una de las columnas 
+summarise_all(pisa, funs(sum(is.na(.))))
+# hago la media de los na de pisa 
+pisa <- na_mean(pisa)
+
+```
+
+
+
+```{r}
+# vemos la base de datos limpias 
+view(pisa)
+attach(pisa)
+```
+
+# Variable excluida
+```{r}
+var_ex <- c('country')
+```
+
+
+#### CORRELACIONES 
+
+```{r}
+# correlaciones 
+chart.Correlation(pisa %>% 
+               select_at(vars(-var_ex)),
+               histogram = TRUE, pch = 19 )
+```
+Las estrellas en rojo lo que indica es que si es distinta de 0. Las lineas rectas determinan que no hay relacion entre ellas 
+
+existen relaciones fuerte como hdi (Índice de Desarrollo Humano) con la educación, la salud o la renta.
+
+
+```{r}
+# Grafico interest
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = interest)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+
+# Grafico Support
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = support)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+
+# Grafico income
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = income)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+
+# Grafico health
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = health)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+
+# Grafico edu
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = edu)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+
+# Grafico hdi
+baseplot1 <- ggplot(data = pisa, mapping = aes(x = overall, y = hdi)) +
+  layer(geom = "point",stat = "identity",position = "identity") +
+  theme_bw() + theme(legend.key = element_blank())
+baseplot1
+```
+
+### GRADOS DE LIBERTAD 
+
+```{r}
+# smooth spline con cv:
+
+# Saco los grados de libertad de cada variable junto con el CV. 
+# Solo los calculo para las variables que no son categoricas ni dumbies.
+
+fit_interest <- smooth.spline(x = interest, y = overall, cv = TRUE)
+fit_support <- smooth.spline(x = support, y = overall, cv = TRUE)
+fit_income <- smooth.spline(x = income, y = overall, cv = TRUE)
+fit_health <- smooth.spline(x = health, y = overall, cv = TRUE)
+fit_edu <- smooth.spline(x = edu, y = overall, cv = TRUE)
+fit_hdi <- smooth.spline(x = hdi, y = overall, cv = TRUE)
+
+
+fit_interest$df
+fit_support$df
+fit_income$df
+fit_health$df
+fit_edu$df
+fit_hdi$df
+```
+
+
+
+
+```{r fig.height = 3, fig.width = 5, fig.align = "center"}
+# comparamos la variable interest con 16 grados de libertad 
+
+  
+  
+  
+plot(interest, overall, col='black')
+criterio_aleatorio <- smooth.spline(interest, overall, df=16)
+criterio_smooth <- smooth.spline(interest, overall, cv=TRUE)
+lines(criterio_aleatorio, col='green', lwd=2)
+lines(criterio_smooth, col='blue', lwd=1)
+legend('topright', legend=c('4.750171 DF', '16DF'),
+       col=c('green','blue'), lty=1, lwd=2, cex=0.8)
+```
+La linea verde representa los grados de libertar credos manualemnte
+la linea azul representa el smooth spline (modelo suavizado)
+
+#### MODELOS ADITIVOS GENERALIZADOS (GAM)
+
+GAM 1 
+
+```{r GAM, fig.height = 10, fig.width = 10, fig.align = "center"}
+# modelos con GAM:
+
+gam1 <- gam(overall~ s(interest, df=4.750171) + s(support,df=2.001243) + s(income,df=4.244952) + s(health,df=2.002844) + s(edu,df=2.002385) + s(hdi,df=8.603228),
+            data = pisa)
+plot(gam1, se=TRUE, col = 'green')
+
+summary(gam1)
+
+```
+
+Ahora hago otro modelo pero quitando el smooth spline de las variables suport, health y edu
+
+```{r}
+gam2 <- gam(overall ~ s(interest, df=4.750171) + support + s(income, df=4.244952)+ health + edu + s(hdi, df=8.603228),
+            data = pisa )
+plot(gam2, se=TRUE, col='green')
+summary(gam2)
+```
+
+Ahora hago otro modelo pero quitando el smooth spline de hdi 
+
+```{r}
+gam3 <- gam(overall ~ s(interest, df=4.750171) + support + s(income, df=4.244952)+ health + edu + hdi,
+            data = pisa )
+plot(gam3, se=TRUE, col='green')
+summary(gam3)
+```
+
+
+como se puede observar mejora el AIC
+
+Por ultimo, analizamos la varianza para ver que modelo nos quedamo
+
+
+# ANOVA
+# Análisis de varianza
+```{r}
+anova(gam1, gam2, gam3)
+```
+
+
+Nos quedamos con el modelo gam1 ya que es el que menor numero de residuos tiene
+
+Al considerarse un muestreo tan pequeno, no consideramos oportuno realizar una division de la muestra para el entrenamiento y e test
