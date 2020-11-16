@@ -1,0 +1,235 @@
+---
+title: "CP04"
+author: "FRANCISCO DEL VAL YAGÜE"
+date: "16/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, fig.width=5, fig.height=5}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+El siguiente estudio correspone a un analisis de las Ventas de Apple entre el segundo trimestre de 2008 hasta el tercer trimestre de 2010.
+
+
+## Librerías
+
+```{r}
+
+require(forecast) # Transform to zoo data
+require(xts) # Create a XTS object
+require(ggplot2) # graphs
+library(ggfortify) # graphs
+```
+
+## Datos
+
+```{r}
+rawData <- read.csv2("../data/IngresosApple.csv", sep=";")
+rawData
+```
+
+```{r include=FALSE}
+# ajustamos el dataframe para convertirlo en una serie temporal 
+rawVentas<-rawData$Ingresos
+rawDate<-seq(as.Date("2008/04/01"), as.Date("2017/07/01"), by = "quarter")
+
+```
+
+
+Convertimos nuestro Data Frame en una serie temporal.
+
+```{r, include=FALSE}
+# Create a XTS object
+xVentas=xts(rawVentas,order.by=rawDate)
+xVentas
+```
+
+
+
+
+```{r include=FALSE}
+# ordenamos por trimestres
+xVentas=to.quarterly(xVentas)
+zVentas=as.zoo(xVentas$xVentas.Close)
+
+# cambiamos el nombre 
+names(zVentas)="Ventas"
+```
+
+
+
+## Estacionariedad
+
+A continuacion, vamos a representar una grafico donde podamos ver si nuestra serie temporal es estacionaria o no en media y varianza:
+```{r}
+df_new <- data.frame(value = as.vector(zVentas),
+                     time = time(zVentas))
+ggplot(df_new)+geom_point(aes(x=time,y=value))+geom_line(aes(x=time,y=value))+ylab("Ventas")+ggtitle("Ventas Trimestrales Apple")+xlab("Trimestres")
+```
+
+
+Como podemos observar, es una serie temporal no estacionaria ni en media ni en varianza.
+
+
+
+
+
+Vamos a tomar logaritmos para ver si existe alguna variacion en la serie temporal:
+
+```{r}
+# Log transformation
+zlVentas=log(zVentas)
+df_newl <- data.frame(value = as.vector(zlVentas),
+                     time = time(zlVentas))
+ggplot(df_newl)+geom_point(aes(x=time,y=value))+geom_line(aes(x=time,y=value))+ylab("Ventas")+ggtitle("Ventas Trimestrales LOG Apple")+xlab("Trimestres")
+```
+
+Seguidamente, comparamos cada trimestre con cada año:
+```{r}
+#Transform to ts data
+tsVentas=ts(coredata(zVentas), start = c(2008, 1), frequency = 4)
+#Seasonal Plot
+ggfreqplot(tsVentas,freq=4,nrow=1,facet.labeller=c("1T","2T","3T","4T"))+ggtitle("Trimestres")
+```
+
+
+En los tres primeros trimestres de cada año, vemos que existe la misma tendencia.Por el contrario, el 4 trimestre de cada año, difiere del resto.
+
+
+***
+
+
+
+
+A continuación, vamos a estudiar los componentes de una serie temporal ( tendencia, estacionalidad y regularidad):
+
+
+```{r, include=FALSE}
+stl(tsVentas[, 1], s.window = "periodic")
+
+```
+
+```{r}
+plot(stl(tsVentas[, 1], s.window = "periodic"))
+```
+
+
+
+Con el grafico anterior podemos descubrir si los datos satisfacen todos los supuestos del modelado ARIMA ( estacionariedad y estacionalidad).
+
+A continuación, debemos eliminar la parte no estacionaria de ARIMA. Para facilitar el análisis aquí, también eliminaremos la parte estacional de los datos. La parte estacional puede eliminarse del análisis y agregarse más tarde, o puede tratarse en el propio modelo ARIMA.
+
+
+Seguidamente, vamos a omitir los tres trimestres del 2017:
+
+```{r include=TRUE}
+# Elimino los 3 ultimos trimestres
+cOmit=3
+
+# dimension del dataset 
+nObs=length(zVentas)
+
+# Aplicacion de los modelos 
+oVentas <- window(zVentas,start=index(zVentas[1]),end=index(zVentas[nObs-cOmit]))
+
+# pronostico del rendimiento
+pVentas <- window(zVentas,start=index(zVentas[nObs-cOmit+1]),end=index(zVentas[nObs]))
+pVentas
+```
+
+
+Ahora, realizamos tres modelos para ver cúal es el mejor:
+
+```{r}
+#Diferencia 1 
+ggtsdisplay(zlVentas)
+```
+
+
+```{r}
+# diferenca 2 
+ggtsdisplay(diff(zlVentas))
+```
+
+
+
+```{r}
+# diferencia de la diferencia 
+ggtsdisplay(diff(diff(zlVentas,4),1))
+```
+
+
+
+***
+### MODELO ARIMA:
+```{r}
+# MODELO ARIMA
+
+fit1=auto.arima(oVentas,lambda=0)
+summary(fit1)
+```
+Con la selección automática de ETS tenemos un modelo con un MAPE (*Mean Absolute Percentage Error*) de 8.284962 y un RMSE (*Root Mean Squared Error*) de 4786.405.
+
+
+
+```{r}
+# Analisis del residuo
+ggtsdisplay(fit1$residuals)
+```
+como podemos observar, los errores estan dentro de las bandas por lo  que el modelo es correcto.
+
+
+```{r}
+# Prediccion del modelo Arima 
+
+fVentas.arima=forecast(fit1)
+
+ggplot(df_new)+geom_point(aes(x=time,y=value))+geom_line(aes(x=time,y=value))+ geom_forecast(fVentas.arima,alpha=0.4)+ggtitle("ARIMA: Predicción Apple")
+```
+
+Hemos quitado tres trimestres. La linea zul es la prediccion real y la negra es la predicción. En el primer trimestres coincide pero en el resto difiere del real. 
+
+
+
+
+### ETS 
+
+```{r}
+#ETS AUTOMATICO 
+etsfit<-ets(oVentas,damped = TRUE)
+
+#forecast model
+fVentas.ets=forecast(etsfit)
+
+#Results
+summary(fVentas.ets)
+```
+segun el modelo ets nuestro modelo es multiplicativo, aditivo, multiplicativo, con una precisión del 13.7%
+
+
+
+```{r}
+#Plot de los tres modelos
+ggplot(df_new)+geom_point(aes(x=time,y=value))+
+  geom_line(aes(x=time,y=value))+ 
+  geom_forecast(fVentas.arima,color="blue",alpha=0.183, plot.conf = FALSE)+
+  geom_forecast(fVentas.ets,color="red", alpha=0.183,plot.conf = FALSE)+
+  ggtitle("Forecast APPLE: ARIMA(blue) vs ETS(red)")
+```
+
+
+```{r}
+cbind(fVentas.arima$mean,fVentas.ets$mean)
+```
+
+Para finalizar, el modelo ets predice unas ventas mayores con mayor precisión. 
+
+La tendencia de los ingresos de APPLE es amortiguada. Existe un rápido crecimiento durante las primeras etapas y después un estancamiento de estos ingresos.
+
+
+
+
+
+
+
