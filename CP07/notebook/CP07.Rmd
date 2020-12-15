@@ -1,0 +1,116 @@
+---
+title: "CP07_Causal_Impact_BWm-VOW"
+author: "FRANCISCO DEL VAL"
+date: "13/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE, 
+                      message = FALSE, 
+                      fig.height = 3, 
+                      fig.width = 6, 
+                      fig.align = "center")
+```
+
+### Objetivo
+
+El objetivo es explicar la relación entre BMW y Volkswagen utilizando el modelo de Causal Impact, para estimar el efecto del diesel gate sucedido en 2016.
+
+Volkswagen había instalado ilegalmente un software para alterar las emisiones contaminantes en 11 millones de automóviles con motor diésel, vendidos entre 2009 y 2015. Como resultado de este fraude, sus motores habían superado con creces los estándares de la Agencia de Protección Ambiental de Estados Unidos (EPA). Los vehículos implicados emiten en condiciones reales hasta 40 veces el límite legal de óxidos de nitrógeno.
+
+
+```{r include=FALSE}
+# ibrerias
+
+library("quantmod") # para descargar el hostorico 
+library(CausalImpact)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r include=FALSE}
+# Datos
+BMW <- getSymbols('BMW.DE', from = '2014-01-01', to = '2020-12-01')
+VW <- getSymbols('VOW.DE', from = '2014-01-01', to = '2020-12-01')
+```
+
+A continuación, vamos a observar la evolución de ambas empresas desde Enero de 2014 hasta Diciembre de 2020. Para ello, utilizaremos la función CausalImpact y dvidiremos los datos en antes y después de la intevención para conocer cómo hubiera evolucionado cada empresa si no se hubiera producido el diesel gate.
+
+```{r include=FALSE}
+evolucion <- cbind(BMW.DE[,6], VOW.DE[,6])
+
+evolucion  <- as.data.frame(evolucion )
+evolucion  <- cbind(evolucion , fecha = rownames(evolucion))
+evolucion  <- na.omit(evolucion )
+evolucion1 <- cbind(VOW.DE[,6], BMW.DE[,6])
+evolucion1 <- as.data.frame(evolucion1)
+evolucion1 <- cbind(evolucion1, fecha = rownames(evolucion1))
+evolucion1 <- na.omit(evolucion1)
+```
+
+ 
+```{r include=FALSE}
+pre_intervencion <- as.Date(c("2014-01-01", "2015-09-19")) 
+post_intervencion <- as.Date(c("2015-09-30", '2020-12-01'))
+```
+
+### BMW
+```{r include=FALSE}
+# estimacion
+causalimpact_BMW <- CausalImpact(evolucion[,c(1,2)], 
+                             pre.period = pre_intervencion, 
+                             post.period = post_intervencion)
+```
+
+
+```{r echo=FALSE}
+summary(causalimpact_BMW)
+```
+Podemos observar como el valor de media de BMW hubiera sido 64 en vez de 67. Esto significa que después de que su competencia cometiera el fraude, el valor de BMW fuera superior, al contrario de una situación normal sin intervención. Esto generó un aumento del 3.1% y un efecto relativo del 4.9%.
+
+
+```{r echo=FALSE}
+# plot(causalimpact_BMW)
+plot(causalimpact_BMW, "original")
+
+```
+
+En la gráfica anterior, podemos observar que la línea vertical representa el momento de la intevención, la línea negra representa la evolución real del valor de BMW y la azul la estimación en caso de no haberse producido el fraude.
+
+
+### Volkswagen
+```{r include=FALSE}
+causalimpact_VW <- CausalImpact(evolucion1[,c(1,2)], 
+                             pre.period = pre_intervencion, 
+                             post.period = post_intervencion)
+```
+
+Volskwagen tuvo el efecto contrario, su valor de media hubiera sido 146 en vez de 136. Lo que significa que fué muy perjudicial esta acción para la empresa. El efecto causal estimado fué una disminución de 10 y un efecto relativo de -6.9%. 
+
+```{r echo=FALSE}
+summary(causalimpact_VW)
+```
+Lo representamos graficamente:
+
+```{r echo=FALSE}
+# plot(causalimpact_VW) 
+plot(causalimpact_VW, "original")
+
+```
+
+Por último, generamos un reporte con los resultados obtenidos para BMW y Volkswagen:
+
+* BMW
+```{r echo=FALSE}
+summary(causalimpact_BMW, "report")
+```
+
+* Volkswagen
+```{r echo=FALSE}
+summary(causalimpact_VW, "report")
+```
+
+
+
