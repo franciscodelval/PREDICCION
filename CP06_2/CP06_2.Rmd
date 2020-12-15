@@ -1,0 +1,103 @@
+---
+title: "CP06_2_Cointegración_BMW/VOW"
+author: "FRANCISCO DEL VAL"
+date: "13/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE, 
+                      message = FALSE, 
+                      fig.height = 5, 
+                      fig.width = 8, 
+                      fig.align = "center")
+```
+
+### Objetivo
+
+Se pretende responder si existe o no, cointegración entre las acciones de BMW y VOLKSWAGEN.
+
+### Análisis
+En primer lugar, se realizarán los diferentes test de Dickey Fuller y Dickey Fuller Aumentado, para poder observar si la serie es estacionario o no. 
+
+Seguidamente, se realizará pruebas de cointegrción con el objetivos de practicar una regresión lineal y los erroes sean estacionrios de orden 0, I(0).
+
+Por último, se realizará la correción de residuos para verificar si estan o no cointegrados entre si.
+
+```{r include=FALSE}
+# series 
+library(quantmod)
+library(tseries)
+
+# errores
+library(car)
+```
+
+```{r include=FALSE}
+# carga de datos 
+getSymbols('BMW.DE', from='2014-01-01', to='2020-10-30')
+getSymbols('VOW.DE', from='2014-01-01', to='2020-10-30')
+```
+
+```{r include=FALSE}
+#diferencia para hacerlas estacionarias
+BMW.DE.ret <- diff(log(Ad(BMW.DE))) 
+VOW.DE.ret <- diff(log(Ad(VOW.DE)))
+```
+
+```{r, include=FALSE}
+BMW.DE.ret <- to.monthly(BMW.DE.ret)$BMW.DE.ret.Close 
+VOW.DE.ret <- to.monthly(VOW.DE.ret)$VOW.DE.ret.Close
+```
+
+```{r include=FALSE}
+#generamos un vector
+vY=cbind(BMW.DE.ret,VOW.DE.ret) #vector con los rendimientos
+colnames(vY)=c("BMW","VOW") # cambio el nombre 
+vY=na.omit(vY) # borro na
+```
+
+```{r echo=FALSE}
+plot(vY)
+```
+
+```{r echo=FALSE}
+adf.test(vY$BMW) 
+adf.test(vY$VOW) 
+```
+
+Como se pude observar, se rechaza la hipótesis nula ya que p-value < 0.05 y se afirma que ambas series son estacionarias. 
+
+
+
+```{r include=FALSE}
+# estadisticos 
+modelo1 <- lm(vY$BMW ~ vY$VOW)
+summary(modelo1)
+
+```
+
+```{r echo=FALSE}
+# Residuos
+residuals <- modelo1$residuals
+summary(residuals)
+residualPlot(modelo1)
+```
+
+Los errores estan alrededor de la media lo que implica que las variables BMW y Volkswagen estan cointegradas.
+
+
+```{r echo=FALSE}
+adf.test(residuals) 
+library(urca) 
+test_1<-ur.df(residuals,type="tren",selectlags="AIC",lags=10)
+summary(test_1)
+```
+Confirmamos con el test de Dickey Fuller con un p-value <0.05 los residuos son estacionarios.
+
+### Conclusión
+
+Tras realizar el test de Dickey Fuller Aumentado podemos observar que el resultado -5.2674 es mayor a -3.15 lo que signfica que se rechaza la hipotesis nula H0, por lo tanto son estacionarios los errores.
+Por último, afirmamos que sí existe cointegración entre BMW y Volkwagen.
+
