@@ -1,0 +1,175 @@
+---
+title: 'Practica 1: Salario NBA'
+author: "FRANCISCO DEL VAL"
+date: "28/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Librerias
+```{r}
+library(readr)
+library(tidyverse)
+```
+
+### Cargamos la base de datos
+```{r}
+nba <- read.csv("nba.csv")
+
+View(nba)
+```
+
+### Modificacion Dataframe
+Cambiamos el nombre de las variables para mejor comprension y llamamos al dataframe nba
+```{r}
+nba <- rename(nba ,"jugador" = "Player", "salario" = "Salary", 
+                 "pais" = "NBA_Country", "ranking" = "NBA_DraftNumber",
+                 "edad" = "Age", "equipo" = "Tm", "partidos_jugados" = "G",
+                 "minutos_jugados" = "MP", "eficiencia" = "PER", 
+                 "acierto_tiro" = "TS.", "intento_triple" = "X3PAr", 
+                 "intento_libre" = "FTr", "rebote_ataque" = "ORB.", 
+                 "rebote_defensa" = "DRB.", "rebotes_total" = "TRB.",
+                 "asistencia" = "AST.", "robo" = "STL.", "bloqueo" = "BLK.", 
+                 "perdida_balon" = "TOV.", "compañerismo" = "USG.", 
+                 "buen_ataque" = "OWS", "buena_defensa" = "DWS", "bueno_total" = "WS", 
+                 "contribucion" = "WS.48", "ptos_ofensivos_vsmedia" = "OBPM",
+                 "ptos_defensivos_vsmedia" = "DBPM", "ptos_vsmedia" = "BPM", 
+                 "ptos_vsmedia_competdirecto" = "VORP")
+```
+Omitimos los na
+```{r}
+nba <- unique(nba)
+nba <- na.omit(nba)
+```
+### Regresion Lineal:
+No incluyo las variables "equipo", " jugador", "pais", ya que no son relevantes para la estimacion.
+Lo que tengo que tener en cuenta son las caracteristicas ( habilidades) del jugador
+```{r}
+modelo <- lm(salario ~ ranking + edad + partidos_jugados + minutos_jugados +
+               eficiencia + acierto_tiro + intento_triple + intento_libre +
+               rebote_ataque + rebote_defensa + rebotes_total + asistencia + 
+               robo + bloqueo + perdida_balon + compañerismo + buen_ataque +
+               buena_defensa + bueno_total+ contribucion + ptos_ofensivos_vsmedia
+             +ptos_defensivos_vsmedia + ptos_vsmedia + ptos_vsmedia_competdirecto,
+             data = nba)
+             
+summary(modelo)
+```
+Se observa que las variables mas significativas son ranking, edad, partidos_jugados, minutos_jugados
+
+
+### Modelo de seleccion con Backward Stepwise:
+Empieza con un modelo que incluye todos los regresores y se van eliminando de uno en uno.
+Eliminaremos aquella variable que menos mejora aporte al modelo, y sera excluida
+```{r}
+library(MASS)
+library(leaps)
+stepAIC(modelo, direction = "backward")
+```
+Nos quedamos con el modelo que menos AIC tiene. AIC = 14923.2
+Por lo tanto mi nuevo modelo es:
+```{r}
+modelo2 = lm(salario ~ ranking + edad + partidos_jugados + minutos_jugados +
+               eficiencia + intento_triple + rebote_ataque + rebotes_total +
+               compañerismo + bueno_total + ptos_ofensivos_vsmedia, data = nba )
+summary(modelo2)
+```
+
+### Multicolinealidad: 
+Es la existencia de alta correlación entre los predictores puede producir problemas de imprecisión de los estimadores (las varianzas de los estimadores son mayores de lo que deberían ser). 
+Para detectar la multicolinealidad se utiliza el factor de inflación de varianza (VIF)
+```{r}
+library(car)
+vif(modelo2)
+sqrt(vif(modelo2)) > 2 
+```
+La raiz del VIF indica cuantas veces es mayor la varianza del estimador respecto a la varianza si no hubiera correlacion entre los regresores.
+si es mayor que 2 (TRUE) → hay problemas de multicolienalidad, significa que estan
+correacionada entre si, por lo tanto se tienen que eliminar
+
+En el resultado se ve que existen problemas de multicolinealidad con las variables:
+partidos_jugados, minutos_jugados, eficiencia, rebotes_total, ptos_ofensivos_vsmedia 
+
+El valor mas alto lo tiene eficiencia por lo que probamos a crear un nuevo modelo sin esa variable:
+```{r}
+modelo3 = lm(salario ~ ranking + edad + partidos_jugados + minutos_jugados + 
+                 intento_triple + rebote_ataque + rebotes_total + compañerismo + 
+                 bueno_total + ptos_ofensivos_vsmedia, data = nba )
+summary(modelo3)
+```
+
+Vuelvo a estudiar la multicolaniedad del modelo 3:
+```{r}
+vif(modelo3) 
+sqrt(vif(modelo3)) > 2
+```
+
+Vemos que ahora solo tiene multicolinealidad partidos_jugados, minutos_jugados hacemos otro modelo quitando la variables minutos_jugados porque tiene el valor mas alto
+```{r}
+modelo4 = lm(salario ~ ranking + edad + partidos_jugados + intento_triple + rebote_ataque +
+               rebotes_total + compañerismo + bueno_total + ptos_ofensivos_vsmedia, data = nba )
+summary(modelo4)
+```
+Vuelvo a estudiar la multicolinealidad con el modelo que no tiene ni minutos ni eficiencia
+```{r}
+vif(modelo4)
+sqrt(vif(modelo4)) > 2
+```
+Ya no hay multicolinealidad entre regresores (correlacion) esto significa que podemos hacer el modelo definitivo con estas variabls
+```{r}
+modelo_final = lm(salario ~ ranking + edad + partidos_jugados + intento_triple + 
+                         rebote_ataque + rebotes_total + compañerismo + 
+                         bueno_total + ptos_ofensivos_vsmedia, data = nba )
+
+
+summary(modelo_final)
+```
+Comparamos el modelo de origen y el modelo final con BIC (se elige el de menor BIC)
+```{r}
+BIC(modelo,modelo_final)
+```
+Se observa que el modelo final tiene menor BIC que el de origen por lo que nuestro modelo_final es mejor 
+
+
+### Representacion grafica del modelo 
+
+```{r}
+library(car)
+qqPlot(modelo_final, labels = row.names(nba), id.method = "identify",
+       simulate = TRUE, main = "Q-Q Plot")
+```
+
+### Validacion global 
+```{r}
+library(gvlma)
+validacion_global <- gvlma(modelo_final) 
+summary(validacion_global)
+gvlma(x=modelo_final) # evaluacion del modelo 
+```
+```{r}
+library(ISLR)
+set.seed(1234)
+n = 10
+muestra <- sample(1:nrow(nba), size = n, replace = FALSE)
+nba_muestra <- nba[muestra, ]
+nba_muestra
+```
+
+
+```{r}
+nba_muestra_pred_salario <- predict(modelo_final, newdata = nba_muestra)
+
+nba_muestra_pred_salario
+```
+
+Solucion: en base a mi modelo predictivo los salarios estan sobrevalorado  
+
+
+
+
+
+
+
